@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="teal_button">#19C4EA</color>
+    <color name="neighbor_bg">#EDD9CE</color>
+    <color name="bottom_bar_qty_bg">#F3E3DA</color>
+</resources>

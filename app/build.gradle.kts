@@ -40,6 +40,7 @@ dependencies {
     implementation(project(":domain"))
     implementation(project(":feature:splash"))
     implementation(project(":feature:catalog"))
+    implementation(project(":core:ads"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

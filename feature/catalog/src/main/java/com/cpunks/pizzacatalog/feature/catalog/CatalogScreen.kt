@@ -1,10 +1,13 @@
 package com.cpunks.pizzacatalog.feature.catalog
 
+import android.app.Activity
+import android.util.Log
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -14,12 +17,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,10 +32,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -42,11 +44,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -60,37 +57,37 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
-import kotlin.math.absoluteValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import coil3.request.crossfade
 import com.cpunks.pizzacatalog.core.ui.theme.BackgroundBeige
-import com.cpunks.pizzacatalog.core.ui.theme.DividerBeige
 import com.cpunks.pizzacatalog.core.ui.theme.PizzaOrange
-import com.cpunks.pizzacatalog.core.ui.theme.PizzaTheme
 import com.cpunks.pizzacatalog.core.ui.theme.SurfaceWhite
 import com.cpunks.pizzacatalog.core.ui.theme.TextDark
-import com.cpunks.pizzacatalog.core.ui.theme.TextLight
 import com.cpunks.pizzacatalog.core.ui.theme.TextMedium
 import com.cpunks.pizzacatalog.domain.model.Pizza
-import com.cpunks.pizzacatalog.domain.model.PizzaVariant
+import com.webtest.ads.banner.BannerAd
+import kotlin.math.absoluteValue
+
+private const val SHOW_TEST_ADS = false
 
 private fun pizzaDiameter(size: String): Dp = when (size) {
     "S" -> 140.dp
@@ -105,6 +102,7 @@ fun CatalogScreen(
     viewModel: CatalogViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val activity = LocalContext.current as Activity
 
     if (state.error != null && state.pizzas.isEmpty()) {
         ErrorScreen(message = state.error ?: "", onRetry = viewModel::retry)
@@ -120,6 +118,19 @@ fun CatalogScreen(
         onSelectSize = viewModel::selectSize,
         onIncrement = viewModel::increment,
         onDecrement = viewModel::decrement,
+        onAdd = {
+            if (viewModel.shouldShowInterstitial()) {
+                viewModel.showInterstitial(activity)
+            }
+        },
+        onWatchReward = { pizzaId ->
+            viewModel.watchRewarded(
+                activity = activity,
+                pizzaId = pizzaId
+            )
+        },
+        rewardAnimation = state.rewardAnimation,
+        onRewardAnimationFinished = viewModel::rewardAnimationFinished,
     )
 }
 
@@ -197,7 +208,10 @@ private fun CatalogContent(
                 .clip(CircleShape)
         )
     },
-) {
+    onAdd: () -> Unit,
+    onWatchReward: (String) -> Unit,
+    rewardAnimation: Boolean,
+    onRewardAnimationFinished: () -> Unit,) {
 
     val waveProgress = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
@@ -252,236 +266,265 @@ private fun CatalogContent(
                 .background(BackgroundBeige)
         ) {
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .height(76.dp)
-                .padding(horizontal = 20.dp, vertical = 10.dp)
-                .graphicsLayer { alpha = contentAlpha },
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (currentPizza != null) {
-                CircleIconButton(onClick = onBack) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.i_back),
-                        contentDescription = stringResource(id = R.string.back),
-                        tint = Color.Unspecified
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = stringResource(id = R.string.pizzas),
-                        fontSize = 11.sp,
-                        color = Color(0x000000).copy(.7f),
-                        letterSpacing = 0.5.sp,
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .height(76.dp)
+                    .padding(horizontal = 20.dp, vertical = 10.dp)
+                    .graphicsLayer { alpha = contentAlpha },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (currentPizza != null) {
+                    CircleIconButton(onClick = onBack) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.i_back),
+                            contentDescription = stringResource(id = R.string.back),
+                            tint = Color.Unspecified
+                        )
+                    }
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.Center)
-                            .offset(y = (-16).dp)
-                    )
-                    AnimatedContent(
-                        targetState = currentPizza.name,
-                        transitionSpec = {
-                            fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(220))
-                        },
-                        label = "pizzaNameAnimation"
-                    ) { targetName ->
+                            .weight(1f)
+                            .fillMaxHeight(),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
-                            targetName,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextDark
+                            text = stringResource(id = R.string.pizzas),
+                            fontSize = 11.sp,
+                            color = Color(0x000000).copy(.7f),
+                            letterSpacing = 0.5.sp,
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .offset(y = (-16).dp)
+                        )
+                        AnimatedContent(
+                            targetState = currentPizza.name,
+                            transitionSpec = {
+                                fadeIn(animationSpec = tween(220)) togetherWith fadeOut(
+                                    animationSpec = tween(220)
+                                )
+                            },
+                            label = "pizzaNameAnimation"
+                        ) { targetName ->
+                            Text(
+                                targetName,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextDark
+                            )
+                        }
+                    }
+                    CircleIconButton(onClick = { liked = !liked }) {
+                        Icon(
+                            painter = painterResource(
+                                id = if (liked) R.drawable.ic_liked_heart else R.drawable.ic_default_heart
+                            ),
+                            contentDescription = stringResource(id = R.string.like),
+                            tint = if (liked) PizzaOrange else Color.Unspecified
                         )
                     }
                 }
-                CircleIconButton(onClick = { liked = !liked }) {
-                    Icon(
-                        painter = painterResource(
-                            id = if (liked) R.drawable.ic_liked_heart else R.drawable.ic_default_heart
-                        ),
-                        contentDescription = stringResource(id = R.string.like),
-                        tint = if (liked) PizzaOrange else Color.Unspecified
-                    )
-                }
             }
-        }
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(280.dp)
-                .graphicsLayer { alpha = contentAlpha },
-            contentAlignment = Alignment.Center
-        ) {
-            if (hasData) {
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 100.dp),
-                    pageSpacing = 0.dp,
-                    verticalAlignment = Alignment.CenterVertically
-                ) { page ->
-                    val pizza = pizzas[page]
-                    val isCurrent = page == pagerState.currentPage
-
-                    val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
-                    val pageOffsetSign = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
-                    val fraction = pageOffset.coerceIn(0f, 1f)
-                    val pageSelectedSize = selectedSizes[pizza.id] ?: pizza.defaultSize
-                    val pageTargetDiameter = pizzaDiameter(pageSelectedSize)
-                    val centerSize = if (page == pagerState.currentPage) {
-                        lerp(animDiameter, pageTargetDiameter, fraction)
-                    } else {
-                        pageTargetDiameter
-                    }
-                    val sizeDp = lerp(centerSize, 90.dp, fraction)
-                    val rotation = pageOffsetSign * -120f
-
-                    Box(
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(280.dp)
+                    .graphicsLayer { alpha = contentAlpha },
+                contentAlignment = Alignment.Center
+            ) {
+                if (hasData) {
+                    HorizontalPager(
+                        state = pagerState,
                         modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Box(
-                            modifier = Modifier.graphicsLayer {
-                                rotationZ = rotation
+                        contentPadding = PaddingValues(horizontal = 100.dp),
+                        pageSpacing = 0.dp,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) { page ->
+                        val pizza = pizzas[page]
+                        val isCurrent = page == pagerState.currentPage
 
-                                val s = 0.6f + 0.4f * imageReveal
-                                scaleX = s
-                                scaleY = s
-                                alpha = imageReveal
-                            }
-                        ) {
-                            pizzaImage(pizza, isCurrent, sizeDp)
+                        val pageOffset =
+                            ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
+                        val pageOffsetSign =
+                            ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                        val fraction = pageOffset.coerceIn(0f, 1f)
+                        val pageSelectedSize = selectedSizes[pizza.id] ?: pizza.defaultSize
+                        val pageTargetDiameter = pizzaDiameter(pageSelectedSize)
+                        val centerSize = if (page == pagerState.currentPage) {
+                            lerp(animDiameter, pageTargetDiameter, fraction)
+                        } else {
+                            pageTargetDiameter
                         }
-                        if (isCurrent) {
-                            val zoomAlpha = (1f - fraction * 2f).coerceIn(0f, 1f)
-                            if (zoomAlpha > 0f) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(200.dp)
-                                        .graphicsLayer { alpha = zoomAlpha }
-                                        .clickable { isZoomed = true },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Image(
-                                        painter = painterResource(id = R.drawable.ic_zoom),
-                                        contentDescription = stringResource(id = R.string.zoom),
-                                        modifier = Modifier.size(88.dp)
-                                    )
+                        val sizeDp = lerp(centerSize, 90.dp, fraction)
+                        val rotation = pageOffsetSign * -120f
+
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier.graphicsLayer {
+                                    rotationZ = rotation
+
+                                    val s = 0.6f + 0.4f * imageReveal
+                                    scaleX = s
+                                    scaleY = s
+                                    alpha = imageReveal
+                                }
+                            ) {
+                                pizzaImage(pizza, isCurrent, sizeDp)
+                            }
+                            if (isCurrent) {
+                                val zoomAlpha = (1f - fraction * 2f).coerceIn(0f, 1f)
+                                if (zoomAlpha > 0f) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(200.dp)
+                                            .graphicsLayer { alpha = zoomAlpha }
+                                            .clickable { isZoomed = true },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Image(
+                                            painter = painterResource(id = R.drawable.ic_zoom),
+                                            contentDescription = stringResource(id = R.string.zoom),
+                                            modifier = Modifier.size(88.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-        }
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            if (currentPizza != null) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .drawBehind {
-                            val w = size.width
-                            val h = size.height
-                            val offsetY = h * (1f - waveProgress.value)
-
-                            val buttonDiameter = 56.dp.toPx()
-                            val buttonRadius = buttonDiameter / 2f
-                            val topPadding = 16.dp.toPx()
-                            val horizontalPadding = 36.dp.toPx()
-                            val maxDrop = 30.dp.toPx()
-
-                            val ySideCenter = topPadding + buttonRadius
-                            val yMidCenter = ySideCenter + maxDrop
-                            val xSideCenter = horizontalPadding + buttonRadius
-
-                            val A = (4f * xSideCenter * (w - xSideCenter)) / (w * w)
-                            val yEdge = (ySideCenter - A * yMidCenter) / (1f - A)
-                            val yControl = 2f * yMidCenter - yEdge
-
-                            val path = Path().apply {
-                                moveTo(0f, yEdge + offsetY)
-                                quadraticTo(
-                                    x1 = w / 2f, y1 = yControl + offsetY,
-                                    x2 = w, y2 = yEdge + offsetY
-                                )
-                                lineTo(w, h)
-                                lineTo(0f, h)
-                                close()
-                            }
-                            drawPath(path, androidx.compose.ui.graphics.Color.White)
-                        },
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                if (currentPizza != null) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer { alpha = contentAlpha },
+                            .drawBehind {
+                                val w = size.width
+                                val h = size.height
+                                val offsetY = h * (1f - waveProgress.value)
+
+                                val buttonDiameter = 56.dp.toPx()
+                                val buttonRadius = buttonDiameter / 2f
+                                val topPadding = 16.dp.toPx()
+                                val horizontalPadding = 36.dp.toPx()
+                                val maxDrop = 30.dp.toPx()
+
+                                val ySideCenter = topPadding + buttonRadius
+                                val yMidCenter = ySideCenter + maxDrop
+                                val xSideCenter = horizontalPadding + buttonRadius
+
+                                val A = (4f * xSideCenter * (w - xSideCenter)) / (w * w)
+                                val yEdge = (ySideCenter - A * yMidCenter) / (1f - A)
+                                val yControl = 2f * yMidCenter - yEdge
+
+                                val path = Path().apply {
+                                    moveTo(0f, yEdge + offsetY)
+                                    quadraticTo(
+                                        x1 = w / 2f, y1 = yControl + offsetY,
+                                        x2 = w, y2 = yEdge + offsetY
+                                    )
+                                    lineTo(w, h)
+                                    lineTo(0f, h)
+                                    close()
+                                }
+                                drawPath(path, androidx.compose.ui.graphics.Color.White)
+                            },
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-
-                        SizeSelector(
-                            sizes = currentPizza.variants.map { it.size },
-                            selectedSize = selectedSize,
-                            onSelect = { onSelectSize(currentPizza.id, it) }
-                        )
-
-                        Spacer(Modifier.height(12.dp))
-
-                        Box(
+                        Column(
                             modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .padding(horizontal = 24.dp),
-                            contentAlignment = Alignment.TopCenter
+                                .fillMaxSize()
+                                .graphicsLayer { alpha = contentAlpha },
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            AnimatedContent(
-                                targetState = currentPizza.description,
-                                transitionSpec = {
-                                    fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(220))
-                                },
-                                modifier = Modifier.fillMaxSize(),
-                                label = "pizzaDescriptionAnimation"
-                            ) { targetDesc ->
-                                Text(
-                                    text = targetDesc,
-                                    fontSize = 14.sp,
-                                    color = TextMedium,
-                                    lineHeight = 20.sp,
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .verticalScroll(rememberScrollState())
-                                )
+
+                            SizeSelector(
+                                sizes = currentPizza.variants.map { it.size },
+                                selectedSize = selectedSize,
+                                onSelect = { onSelectSize(currentPizza.id, it) }
+                            )
+
+                            Spacer(Modifier.height(12.dp))
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp),
+                                contentAlignment = Alignment.TopCenter
+                            ) {
+                                AnimatedContent(
+                                    targetState = currentPizza.description,
+                                    transitionSpec = {
+                                        fadeIn(animationSpec = tween(220)) togetherWith fadeOut(
+                                            animationSpec = tween(220)
+                                        )
+                                    },
+                                    modifier = Modifier.fillMaxSize(),
+                                    label = "pizzaDescriptionAnimation"
+                                ) { targetDesc ->
+                                    Text(
+                                        text = targetDesc,
+                                        fontSize = 14.sp,
+                                        color = TextMedium,
+                                        lineHeight = 20.sp,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .verticalScroll(rememberScrollState())
+                                    )
+                                }
                             }
+
+                            Spacer(Modifier.height(16.dp))
+
+                            BottomBar(
+                                quantity = quantity,
+                                price = price,
+                                onIncrement = { onIncrement(currentPizza.id) },
+                                onDecrement = { onDecrement(currentPizza.id) },
+                                onAdd = onAdd
+                            )
+
+                            Spacer(Modifier
+                                .navigationBarsPadding()
+                                .height(16.dp))
                         }
-
-                        Spacer(Modifier.height(16.dp))
-
-                        BottomBar(
-                            quantity = quantity,
-                            price = price,
-                            onIncrement = { onIncrement(currentPizza.id) },
-                            onDecrement = { onDecrement(currentPizza.id) },
-                            onAdd = {}
-                        )
-
-                        Spacer(Modifier.navigationBarsPadding().height(16.dp))
                     }
                 }
             }
+
+            RewardCard(
+                animate = rewardAnimation,
+                onAnimationFinished = onRewardAnimationFinished,
+                onClick = {
+                    currentPizza?.let {
+                        onWatchReward(it.id)
+                    }
+                }
+            )
+
+            Spacer(Modifier.height(16.dp))
+
+            if (SHOW_TEST_ADS) {
+                BannerAd(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                )
+            }
+
         }
-    }
 
         AnimatedVisibility(
             visible = isZoomed && currentPizza != null,
@@ -533,7 +576,10 @@ private fun CatalogContent(
                                         val maxOffsetX = (size.width * (newScale - 1f)) / 2f
                                         val maxOffsetY = (size.height * (newScale - 1f)) / 2f
                                         offset = Offset(
-                                            x = (offset.x + pan.x).coerceIn(-maxOffsetX, maxOffsetX),
+                                            x = (offset.x + pan.x).coerceIn(
+                                                -maxOffsetX,
+                                                maxOffsetX
+                                            ),
                                             y = (offset.y + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
                                         )
                                     } else {
@@ -550,6 +596,88 @@ private fun CatalogContent(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun RewardCard(
+    onClick: () -> Unit,
+    animate: Boolean,
+    onAnimationFinished: () -> Unit,
+) {
+    val scale = remember { Animatable(1f) }
+    val alpha = remember { Animatable(1f) }
+
+    LaunchedEffect(animate) {
+        Log.d("RewardCard", "animate=$animate")
+
+        if (!animate) return@LaunchedEffect
+
+        scale.snapTo(0.85f)
+
+        scale.animateTo(
+            1.15f,
+            spring(
+                dampingRatio = 0.35f,
+                stiffness = Spring.StiffnessLow
+            )
+        )
+
+        scale.animateTo(
+            1f,
+            spring()
+        )
+
+        onAnimationFinished()
+    }
+
+    Box(
+        modifier = Modifier
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+                this.alpha = alpha.value
+            }
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color(0xFFFFF3D4))
+            .clickable(onClick = onClick)
+            .padding(16.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+
+            Text(
+                text = "🎁",
+                fontSize = 30.sp
+            )
+
+            Spacer(Modifier.width(12.dp))
+
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = "Watch free video",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+
+                Text(
+                    text = "Get 1 pizza for free",
+                    color = TextMedium,
+                    fontSize = 13.sp
+                )
+            }
+
+            Text(
+                text = "FREE",
+                color = PizzaOrange,
+                fontWeight = FontWeight.ExtraBold
+            )
         }
     }
 }

@@ -19,6 +19,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:ads"))
     implementation(project(":domain"))
     implementation(project(":core:ui"))
     implementation(libs.hilt.android)

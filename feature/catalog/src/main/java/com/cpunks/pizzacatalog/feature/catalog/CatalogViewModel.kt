@@ -1,5 +1,6 @@
 package com.cpunks.pizzacatalog.feature.catalog
 
+import android.app.Activity
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -9,6 +10,9 @@ import coil3.size.Size
 import com.cpunks.pizzacatalog.domain.model.Pizza
 import com.cpunks.pizzacatalog.domain.repository.PizzaRepository
 import com.cpunks.pizzacatalog.domain.usecase.GetPizzasUseCase
+import com.webtest.ads.frequency.AdFrequencyManager
+import com.webtest.ads.interstitial.InterstitialAdManager
+import com.webtest.ads.rewarded.RewardedAdManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.async
@@ -29,14 +33,18 @@ data class CatalogUiState(
     val error: String? = null,
     val imagesReady: Boolean = false,
     val selectedSizes: Map<String, String> = emptyMap(),
-    val quantities: Map<String, Int> = emptyMap()
+    val quantities: Map<String, Int> = emptyMap(),
+    val rewardAnimation: Boolean = false
 )
 
 @HiltViewModel
 class CatalogViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val getPizzas: GetPizzasUseCase,
-    private val repository: PizzaRepository
+    private val repository: PizzaRepository,
+    private val interstitialAdManager: InterstitialAdManager,
+    private val adFrequencyManager: AdFrequencyManager,
+    private val rewardedAdManager: RewardedAdManager
 ) : ViewModel() {
 
     private var prefetchStarted = false
@@ -49,9 +57,50 @@ class CatalogViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(CatalogUiState())
     val uiState: StateFlow<CatalogUiState> = _uiState.asStateFlow()
 
+    fun shouldShowInterstitial(): Boolean {
+        return adFrequencyManager.shouldShow() &&
+                interstitialAdManager.canShow()
+    }
+
+    private fun addPizzaToCart(pizzaId: String) {
+        _uiState.update { state ->
+            val current = state.quantities[pizzaId] ?: 1
+            state.copy(
+                quantities = state.quantities + (pizzaId to (current + 1))
+            )
+        }
+    }
+
+    fun watchRewarded(
+        activity: Activity,
+        pizzaId: String
+    ) {
+        val shown = rewardedAdManager.show(
+            activity = activity,
+            onReward = { addPizzaToCart(pizzaId) },
+            onDismissed = { _uiState.update { it.copy(rewardAnimation = true) } }
+        )
+
+        if (!shown) {
+            rewardedAdManager.load(context)
+        }
+    }
+
+    fun rewardAnimationFinished() {
+        _uiState.update {
+            it.copy(rewardAnimation = false)
+        }
+    }
+
     init {
         observePizzas()
         refresh()
+        interstitialAdManager.load(context)
+        rewardedAdManager.load(context)
+    }
+
+    fun showInterstitial(activity: Activity) {
+        interstitialAdManager.show(activity)
     }
 
     private fun observePizzas() {
